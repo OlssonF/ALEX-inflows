@@ -82,7 +82,7 @@ m2_coefficients <- m2$coefficients
 
 # Generate the forecast(s) --------------
 
-all_forecast_dates <- seq.Date(from = as_date('2020-01-01'), by = '7 days', length.out = 100)
+all_forecast_dates <- seq.Date(from = as_date('2020-01-01'), by = '1 days', length.out = 365*2)
 horizon <- 35
 
 for (date_use in all_forecast_dates) {
@@ -223,7 +223,6 @@ for (date_use in all_forecast_dates) {
 
 #---------------------------------#
 
-
 forecast_process_unc |> 
   reframe(.by = c(Date),
           median = exp(median(prediction)),
@@ -241,3 +240,100 @@ forecast_process_unc |>
   ggplot(aes(x=Date, y=exp(prediction), group = parameter)) +
   geom_line() +
   geom_point(aes(y=exp(Wellington)))
+
+
+# Analyse forecasts ------------
+
+inflow_fc <- arrow::open_dataset('Forecasts') |> 
+  collect() |> 
+  mutate(prediction = exp(prediction))
+
+inflow_fc |> 
+  filter(reference_date %in% as.character(seq.Date(from = as_date('2020-01-01'),
+                                                   by = '1 month', 
+                                                   length.out = 9))) |> 
+  reframe(.by = c(Date, reference_date), 
+          median = median(prediction, na.rm = T),
+          q97.5 = quantile(prediction, na.rm = T, 0.975),
+          q02.5 = quantile(prediction, na.rm = T, 0.025)) |> 
+  left_join(all_dat, by = 'Date') |> 
+  ggplot(aes(x=Date, y=median)) +
+  geom_ribbon(aes(ymax =  q97.5, ymin = q02.5), alpha = 0.5, fill = 'lightblue') +
+  geom_line() +
+  geom_point(aes(y=exp(Wellington)), size = 0.7) +
+  facet_wrap(~reference_date, scales = 'free_x', labeller = label_both) +
+  theme_bw() +
+  labs(y='Flow (m3/s)')
+
+
+ggpubr::ggarrange(
+  inflow_fc |> 
+    reframe(.by = c(Date, reference_date), 
+            median = median(prediction, na.rm = T),
+            quantile9 = quantile(prediction, na.rm = T, 0.8),
+            quantile1 = quantile(prediction, na.rm = T, 0.2)) |> 
+    left_join(all_dat, by = 'Date') |> 
+    mutate(horizon = as.numeric(as_date(Date) - as_date(reference_date)),
+           Wellington = exp(Wellington)) |> 
+    filter(!is.na(Wellington)) |> 
+    mutate(is_in = between(Wellington, quantile1, quantile9)) |> 
+    group_by(horizon, is_in) |> 
+    summarise(n = n()) |> 
+    pivot_wider(names_from = is_in, names_prefix = 'within_', values_from = n, values_fill = 0) |> 
+    mutate(perc = within_TRUE/(within_FALSE + within_TRUE)*100) |> 
+    ggplot(aes(x=horizon, y=perc)) +
+    geom_hline(yintercept = 60, colour = 'grey3', linetype = 'dashed', linewidth = 0.8)+
+    geom_line(linewidth = 0.8, alpha = 0.5) +
+    labs(y = 'Percentage of observations within\n60% confidence intervals', x='Horizon (days)')  +
+    annotate('text', x = 30, y = 70, label = 'underconfident', size = 4, hjust = 1) +
+    annotate('text', x = 30, y = 50, label = 'overconfident', size = 4, hjust = 1) +
+    theme_bw(),
+  
+  inflow_fc |> 
+    reframe(.by = c(Date, reference_date), 
+            median = median(prediction, na.rm = T),
+            quantile9 = quantile(prediction, na.rm = T, 0.9),
+            quantile1 = quantile(prediction, na.rm = T, 0.1)) |> 
+    left_join(all_dat, by = 'Date') |> 
+    mutate(horizon = as.numeric(as_date(Date) - as_date(reference_date)),
+           Wellington = exp(Wellington)) |> 
+    filter(!is.na(Wellington)) |> 
+    mutate(is_in = between(Wellington, quantile1, quantile9)) |> 
+    group_by(horizon, is_in) |> 
+    summarise(n = n()) |> 
+    pivot_wider(names_from = is_in, names_prefix = 'within_', values_from = n, values_fill = 0) |> 
+    mutate(perc = within_TRUE/(within_FALSE + within_TRUE)*100) |> 
+    ggplot(aes(x=horizon, y=perc)) +
+    geom_hline(yintercept = 80, colour = 'grey3', linetype = 'dashed', linewidth = 0.8)+
+    geom_line(linewidth = 0.8, alpha = 0.5) +
+    labs(y = 'Percentage of observations within\n80% confidence intervals', x='Horizon (days)')  +
+    annotate('text', x = 30, y = 100, label = 'underconfident', size = 4, hjust = 1) +
+    annotate('text', x = 30, y = 75, label = 'overconfident', size = 4, hjust = 1) +
+    theme_bw(),
+  
+  
+  inflow_fc |> 
+    reframe(.by = c(Date, reference_date), 
+            median = median(prediction, na.rm = T),
+            quantile97.5 = quantile(prediction, na.rm = T, 0.975),
+            quantile02.5 = quantile(prediction, na.rm = T, 0.025)) |> 
+    left_join(all_dat, by = 'Date') |> 
+    mutate(horizon = as.numeric(as_date(Date) - as_date(reference_date)),
+           Wellington = exp(Wellington)) |> 
+    filter(!is.na(Wellington)) |> 
+    mutate(is_in = between(Wellington, quantile02.5, quantile97.5)) |> 
+    group_by(horizon, is_in) |> 
+    summarise(n = n()) |> 
+    pivot_wider(names_from = is_in, names_prefix = 'within_', values_from = n, values_fill = 0) |> 
+    mutate(perc = within_TRUE/(within_FALSE + within_TRUE)*100) |> 
+    ggplot(aes(x=horizon, y=perc)) +
+    geom_hline(yintercept = 95, colour = 'grey3', linetype = 'dashed', linewidth = 0.8)+
+    geom_line(linewidth = 0.8, alpha = 0.5) +
+    labs(y = 'Percentage of observations within\n95% confidence intervals', x='Horizon (days)')  +
+    annotate('text', x = 30, y = 100, label = 'underconfident', size = 4, hjust = 1) +
+    annotate('text', x = 30, y = 75, label = 'overconfident', size = 4, hjust = 1) +
+    theme_bw(),
+  
+  nrow=1 
+)
+
