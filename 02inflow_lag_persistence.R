@@ -43,8 +43,7 @@ for (date_use in all_forecast_dates) {
       filter(Date == forecast_dates$Date[i])
     
     # run model with process uncertainty added 
-    forecast_use$prediction <- m1_coefficients[1] + 
-      dat_use$L1_lag6 * m1_coefficients[2] #+ 
+    forecast_use$prediction <- m1_coefficients[1] + dat_use$L1_lag6 * m1_coefficients[2] #+ 
     # rnorm(n = n_members,
     #       mean = 0, 
     #       sd = sd(m1_resid))
@@ -61,7 +60,7 @@ for (date_use in all_forecast_dates) {
   min_h_missing <- min(missing_dates$horizon)
   
   # need to make sure there are enough weights in case of additional missing values
-  weights <- c(rep(0,ccf_L1_W_lag)[!1:min_h_missing - 1],
+  weights <- c(rep(0,ccf_L1_W_lag)[!1:min_h_missing],
                # Generate additional weights to the length of this prediction window 
                # (m1:m2, define the weightings based on this length)
                seq(from = 0, to = 1, length.out = ccf_QSA_W_lag - ccf_L1_W_lag))
@@ -146,8 +145,7 @@ for (date_use in all_forecast_dates) {
     # run model with process uncertainty added 
     # forecast_use$prediction <-  dat_use$QSA_lag17 
     # forecast_use$prediction <- dat_use$QSA_lag17 * m2_coefficients[1]
-    forecast_use$prediction <- m2_coefficients[1] +
-      dat_use$QSA_lag17 * m2_coefficients[2] #+
+    forecast_use$prediction <- m2_coefficients[1] + dat_use$QSA_lag17 * m2_coefficients[2] #+
     # rnorm(n = n_members,
     #       mean = 0,
     #       sd = sd(m2_resid))
@@ -172,37 +170,3 @@ forecast_deterministic |>
   geom_point(aes(y=Wellington)) +
   geom_vline(xintercept = forecast_dates$Date[c(6,17)]) +
   labs(y='prediction')
-
-# Forecast analysis
-inflow_fc <- arrow::open_dataset('Forecasts') |> 
-  collect() |> 
-  mutate(prediction = exp(prediction),
-         horizon = as.numeric(Date - as_date(reference_date)))
-
-
-inflow_fc |> 
-  filter(reference_date %in% as.character(seq.Date(from = as_date('2020-01-10'),
-                                                   by = '1 month', 
-                                                   length.out = 12))) |> 
-  reframe(.by = c(Date, reference_date, model_id),
-          prediction = mean(prediction)) |>
-  left_join(all_dat, by = 'Date') |> 
-  ggplot(aes(x=Date, y = prediction)) +
-  geom_point(aes(y=exp(Wellington)), size = 0.7) +
-  geom_line(aes(colour = model_id), linewidth = 1) +
-  facet_wrap(~reference_date, scales = 'free_x', labeller = label_both) +
-  theme_bw() +
-  labs(y='Flow (m3/s)')
-
-
-inflow_fc |> 
-  filter(reference_date %in% as.character(seq.Date(from = as_date('2020-01-10'),
-                                                   by = '1 month', 
-                                                   length.out = 12))) |> 
-  reframe(.by = c(Date, reference_date, model_id, horizon),
-          prediction = mean(prediction)) |>
-  left_join(all_dat, by = 'Date') |> 
-  group_by(horizon) |> 
-  summarise(rmse = RMSE(exp(Wellington), prediction)) |> 
-  ggplot(aes(x=horizon, y=rmse)) + 
-  geom_point()
