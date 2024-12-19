@@ -16,7 +16,9 @@ dat_realtime <- read.csv('../../../Downloads/BulkExport-6 Locations-202412030358
   na.omit()
 
 all_dat <- full_join(select(dat_historical, -L1_historical),
-                     dat_realtime) 
+                     dat_realtime) |> 
+  mutate(QSA = zoo::na.approx(QSA, na.rm = F, rule = 1:2, maxgap = 5)) # TESTING
+  
 
 all_dat_noNA <- all_dat |> 
   na.omit()
@@ -49,13 +51,19 @@ ccf_QSA_L1_lag <- ccf_QSA_L1$lag[which(ccf_QSA_L1$acf == max(ccf_QSA_L1$acf))]
 # Fit models -----------------------
 # use the log of the discharges
 all_dat <- all_dat |>
-  mutate(across(c('Wellington', 'L1', 'QSA'), log))
+  mutate(across(c('Wellington', 'L1', 'QSA'), log)) |> 
+  mutate(#W_lag1 = lag(Wellington,1),
+    "L1_lag{ccf_L1_W_lag}" := lag(L1, ccf_L1_W_lag),
+    "QSA_lag{ccf_QSA_L1_lag}" := lag(QSA, ccf_QSA_L1_lag),
+    "QSA_lag{ccf_QSA_W_lag}" := lag(QSA, ccf_QSA_W_lag)) 
 
 # all_dat <- all_dat |>
-#   filter(Wellington < quantile(all_dat$Wellington, 0.9, na.rm = T))
+#   filter(Wellington < quantile(all_dat$Wellington, 0.8, na.rm = T))
+formula_m1 <- paste0("Wellington ~ L1_lag", ccf_L1_W_lag)
+formula_m2 <- paste0("Wellington ~ QSA_lag", ccf_QSA_W_lag)
 
-m1 <- lm(Wellington ~ lag(L1, ccf_L1_W_lag) , all_dat)
-m2 <- lm(Wellington ~ lag(QSA, ccf_QSA_W_lag), all_dat)
+m1 <- lm(as.formula(formula_m1), all_dat)
+m2 <- lm(as.formula(formula_m2), all_dat)
 # m3 <- lm(L1 ~ lag(QSA, ccf_QSA_L1_lag), all_dat)
 
 
@@ -100,8 +108,10 @@ for (date_use in all_forecast_dates) {
   fc_dat <- 
     all_dat |> 
     filter(Date <= reference_date) |> 
+    mutate(QSA = zoo::na.approx(QSA, na.rm = F, rule = 1:2, maxgap = 5),
+           L1 = zoo::na.approx(L1, na.rm = F, rule = 1:2, maxgap = 5)) |> # TESTING
     full_join(forecast_dates, by = 'Date') |>
-    mutate(W_lag1 = lag(Wellington,1),
+    mutate(#W_lag1 = lag(Wellington,1),
            "L1_lag{ccf_L1_W_lag}" := lag(L1, ccf_L1_W_lag),
            "QSA_lag{ccf_QSA_L1_lag}" := lag(QSA, ccf_QSA_L1_lag),
            "QSA_lag{ccf_QSA_W_lag}" := lag(QSA, ccf_QSA_W_lag)) |> 
@@ -178,6 +188,7 @@ for (date_use in all_forecast_dates) {
   # Option 2: fit a RW model and then generate an ensemble forecast with uncertainty
 
   RW_mod <- all_dat |>
+    mutate(QSA = zoo::na.approx(QSA, na.rm = F, rule = 1:2, maxgap = 5)) |>
     mutate(QSA_lag := lag(QSA, ccf_QSA_W_lag)) |> 
     filter(Date <= reference_date + days(ccf_QSA_W_lag)) |>
     as_tsibble(index = 'Date') |>
@@ -215,8 +226,10 @@ for (date_use in all_forecast_dates) {
   }
   
   forecast_process_unc |> 
-    mutate(reference_date = reference_date) |> 
-    arrow::write_dataset(path = 'Forecasts', format = "parquet", partitioning = c('reference_date'))
+    mutate(prediction = exp(prediction),
+           reference_date = reference_date,
+           model_id = 'lag') |> 
+    arrow::write_dataset(path = 'Forecasts', format = "parquet", partitioning = c('model_id', 'reference_date'))
   
 }
 
